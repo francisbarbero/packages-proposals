@@ -85,3 +85,96 @@
     text-decoration: underline;
     font: inherit;
 }
+
+
+/* Tabs for schema groups */
+.sfpp-tabs {
+    margin-top: 16px;
+}
+
+.sfpp-tab-nav {
+    list-style: none;
+    margin: 0 0 8px 0;
+    padding: 0;
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #ddd;
+    font-size: 13px;
+}
+
+.sfpp-tab-nav-item {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    background: #f7f7f7;
+    cursor: pointer;
+    border-radius: 3px 3px 0 0;
+}
+
+.sfpp-tab-nav-item--active {
+    background: #fff;
+    border-bottom: 1px solid #fff;
+    font-weight: 600;
+}
+
+.sfpp-tab-panels {
+    border: 1px solid #ddd;
+    border-radius: 0 3px 3px 3px;
+    padding: 10px 12px;
+    background: #fff;
+}
+
+.sfpp-tab-panel {
+    display: none;
+}
+
+.sfpp-tab-panel--active {
+    display: block;
+}
+
+/* Optional: tighten schema group headings */
+.sfpp-schema-group h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+
+
+/* Tabs inside edit screens */
+.sfpp-tabs-nav {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #ddd;
+}
+
+.sfpp-tabs-nav-item a {
+    display: block;
+    padding: 6px 12px;
+    text-decoration: none;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    background: #f9f9f9;
+    border-radius: 3px 3px 0 0;
+    color: #333;
+}
+
+.sfpp-tabs-nav-item.is-active a {
+    background: #fff;
+    border-bottom-color: #fff;
+    font-weight: 600;
+}
+
+.sfpp-tab-panel {
+    display: none;
+    padding-top: 8px;
+}
+
+.sfpp-tab-panel.is-active {
+    display: block;
+}
+
+.sfpp-tab-panel__title {
+    margin-top: 0;
+}

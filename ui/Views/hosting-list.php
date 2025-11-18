@@ -1,54 +1,54 @@
 <?php
-// ui/Views/packages-list.php
+// ui/Views/hosting-list.php
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Fetch Website Packages from the database.
-$packages = function_exists( 'sfpp_get_website_packages' ) ? sfpp_get_website_packages() : [];
+// Fetch Hosting Packages from the database.
+$packages = function_exists( 'sfpp_get_hosting_packages' ) ? sfpp_get_hosting_packages() : [];
 
 // Simple notice if something just happened.
 $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) : '';
 ?>
-<div class="sfpp-section sfpp-section--packages">
-    <h2>Website Packages</h2>
+<div class="sfpp-section sfpp-section--hosting">
+    <h2>Hosting Packages</h2>
 
     <?php if ( 'package_created' === $notice ) : ?>
         <div class="sfpp-notice sfpp-notice--success">
-            New Website Package created with placeholder name.
+            New Hosting Package created with placeholder name.
         </div>
     <?php elseif ( 'package_saved' === $notice ) : ?>
         <div class="sfpp-notice sfpp-notice--success">
-            Website Package saved.
+            Hosting Package saved.
         </div>
     <?php elseif ( 'package_cloned' === $notice ) : ?>
         <div class="sfpp-notice sfpp-notice--success">
-            Website Package cloned.
+            Hosting Package cloned.
         </div>
     <?php elseif ( 'package_archived' === $notice ) : ?>
         <div class="sfpp-notice sfpp-notice--success">
-            Website Package archived.
+            Hosting Package archived.
         </div>
     <?php elseif ( 'package_unarchived' === $notice ) : ?>
         <div class="sfpp-notice sfpp-notice--success">
-            Website Package unarchived.
+            Hosting Package unarchived.
         </div>
     <?php endif; ?>
 
     <form method="post" class="sfpp-add-form">
         <?php wp_nonce_field( 'sfpp_add_package', 'sfpp_add_package_nonce' ); ?>
         <input type="hidden" name="sfpp_action" value="add_package" />
-        <input type="hidden" name="package_type" value="website" />
-        <input type="hidden" name="sfpp_section" value="packages" />
+        <input type="hidden" name="package_type" value="hosting" />
+        <input type="hidden" name="sfpp_section" value="hosting" />
         <button type="submit" class="sfpp-button sfpp-button--primary">
-            + Add new Website Package
+            + Add new Hosting Package
         </button>
     </form>
 
     <?php if ( empty( $packages ) ) : ?>
 
-        <p>No Website Packages found yet.</p>
+        <p>No Hosting Packages found yet.</p>
 
     <?php else : ?>
 
@@ -80,7 +80,7 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                             $base_url = remove_query_arg( [ 'sfpp_view', 'package_id', 'sfpp_notice', 'sfpp_new_id' ] );
                             $edit_url = add_query_arg(
                                 [
-                                    'sfpp_section' => 'packages',
+                                    'sfpp_section' => 'hosting',
                                     'sfpp_view'    => 'edit',
                                     'package_id'   => $pkg->id,
                                 ],
@@ -96,7 +96,7 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                                 <?php wp_nonce_field( 'sfpp_clone_package_' . $pkg->id, 'sfpp_clone_package_nonce' ); ?>
                                 <input type="hidden" name="sfpp_action" value="clone_package">
                                 <input type="hidden" name="package_id" value="<?php echo (int) $pkg->id; ?>">
-                                <input type="hidden" name="sfpp_section" value="packages">
+                                <input type="hidden" name="sfpp_section" value="hosting">
                                 <button type="submit" class="sfpp-link-button">Clone</button>
                             </form>
 
@@ -110,7 +110,7 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                                 <?php wp_nonce_field( $nonce_action, 'sfpp_package_status_nonce' ); ?>
                                 <input type="hidden" name="sfpp_action" value="<?php echo esc_attr( $action_value ); ?>">
                                 <input type="hidden" name="package_id" value="<?php echo (int) $pkg->id; ?>">
-                                <input type="hidden" name="sfpp_section" value="packages">
+                                <input type="hidden" name="sfpp_section" value="hosting">
                                 <button type="submit" class="sfpp-link-button">
                                     <?php echo $is_archived ? 'Unarchive' : 'Archive'; ?>
                                 </button>

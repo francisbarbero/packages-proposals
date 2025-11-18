@@ -10,11 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // Simple autoloader placeholder for later.
 spl_autoload_register( function ( $class ) {
-    // We'll wire this properly later.
     if ( strpos( $class, 'SFPP\\' ) !== 0 ) {
         return;
     }
-    // Example: SFPP\App\Domain\Package -> /app/Domain/Package.php
     $relative = str_replace( [ 'SFPP\\', '\\' ], [ '', DIRECTORY_SEPARATOR ], $class );
     $path     = __DIR__ . DIRECTORY_SEPARATOR . $relative . '.php';
 
@@ -23,29 +21,25 @@ spl_autoload_register( function ( $class ) {
     }
 } );
 
-
-// Front-end actions (handles things like creating packages from the UI).
+// Front-end actions.
 require_once __DIR__ . '/ui/front-actions.php';
+// Schema form renderer.
+require_once __DIR__ . '/ui/schema-form.php';
 
-// Ensure front-end POST actions are handled before rendering the page.
+// Handle POST actions before rendering.
 add_action( 'template_redirect', 'sfpp_handle_front_actions' );
-
-
 
 /**
  * Shortcode to render the front-end app.
- * You can create a WP Page and drop [sfpp_app] in the content.
  */
 add_shortcode( 'sfpp_app', function () {
     if ( ! defined( 'ABSPATH' ) ) {
         return '';
     }
 
-    // Determine which section to show: dashboard, packages, extras, proposals.
     $section = isset( $_GET['sfpp_section'] ) ? sanitize_key( $_GET['sfpp_section'] ) : 'dashboard';
 
-    // Basic whitelist.
-    $allowed_sections = [ 'dashboard', 'packages', 'extras', 'proposals' ];
+    $allowed_sections = [ 'dashboard', 'packages', 'hosting', 'maintenance', 'extras', 'proposals' ];
     if ( ! in_array( $section, $allowed_sections, true ) ) {
         $section = 'dashboard';
     }
@@ -65,24 +59,33 @@ add_shortcode( 'sfpp_app', function () {
     return ob_get_clean();
 } );
 
-
 /**
- * Renders the top navigation inside the app (front-end).
+ * Top navigation.
  */
 function sfpp_render_app_nav( $active_section ) {
-    // Get the base URL of the current page (without sfpp_section).
-    $base_url = remove_query_arg( 'sfpp_section' );
+    // Strip all SFPP routing params so tab clicks always go to list views.
+    $base_url = remove_query_arg(
+        [
+            'sfpp_section',
+            'sfpp_view',
+            'package_id',
+            'sfpp_notice',
+            'sfpp_new_id',
+        ]
+    );
 
     $links = [
-        'dashboard' => 'Dashboard',
-        'packages'  => 'Website Packages',
-        'extras'    => 'Website Extras',
-        'proposals' => 'Proposals',
+        'dashboard'   => 'Dashboard',
+        'packages'    => 'Website Packages',
+        'hosting'     => 'Hosting Packages',
+        'maintenance' => 'Maintenance Packages',
+        'extras'      => 'Website Extras',
+        'proposals'   => 'Proposals',
     ];
     ?>
     <nav class="sfpp-nav">
         <ul class="sfpp-nav-list">
-            <?php foreach ( $links as $section => $label ) : 
+            <?php foreach ( $links as $section => $label ) :
                 $url   = add_query_arg( 'sfpp_section', $section, $base_url );
                 $class = ( $section === $active_section ) ? 'sfpp-nav-item sfpp-nav-item--active' : 'sfpp-nav-item';
             ?>
@@ -98,31 +101,35 @@ function sfpp_render_app_nav( $active_section ) {
 }
 
 /**
- * Includes the appropriate view file for the current section.
- * For now, these are just stubs in /ui/Views/.
+ * Section router.
  */
 function sfpp_render_app_section( $section ) {
     $base_dir = __DIR__ . '/ui/Views';
 
     switch ( $section ) {
         case 'packages':
-            // Decide between list view and edit view.
-            $view_type  = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
-            $package_id = isset( $_GET['package_id'] ) ? (int) $_GET['package_id'] : 0;
-
-            if ( 'edit' === $view_type ) {
-                $view = $base_dir . '/package-edit.php';
-            } else {
-                $view = $base_dir . '/packages-list.php';
-            }
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/package-edit.php' : $base_dir . '/packages-list.php';
             break;
-            
+
+        case 'hosting':
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/package-edit.php' : $base_dir . '/hosting-list.php';
+            break;
+
+        case 'maintenance':
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/package-edit.php' : $base_dir . '/maintenance-list.php';
+            break;
+
         case 'extras':
             $view = $base_dir . '/extras-list.php';
             break;
+
         case 'proposals':
             $view = $base_dir . '/proposals-placeholder.php';
             break;
+
         case 'dashboard':
         default:
             $view = $base_dir . '/dashboard.php';
@@ -136,7 +143,7 @@ function sfpp_render_app_section( $section ) {
     }
 }
 
-
+// CSS + JS.
 add_action( 'wp_enqueue_scripts', function () {
     wp_enqueue_style(
         'sfpp-app',
@@ -144,79 +151,83 @@ add_action( 'wp_enqueue_scripts', function () {
         [],
         '0.1'
     );
+
+    wp_enqueue_script(
+        'sfpp-app-js',
+        plugins_url( 'public/js/app.js', __FILE__ ),
+        [ 'jquery' ],
+        '0.1',
+        true
+    );
 } );
 
-
-
 /**
- * Fetch active Website Packages from the sf_packages table.
- * For now this is a simple helper; later we can move it to a repository class.
- *
- * @return array of stdClass rows from the database.
+ * Generic helpers.
  */
-function sfpp_get_website_packages() {
+function sfpp_get_packages_by_type( $type, $status = 'active' ) {
     global $wpdb;
 
     $table = 'sf_packages';
 
     $sql = $wpdb->prepare(
         "SELECT * FROM {$table} WHERE type = %s AND status = %s ORDER BY name ASC",
-        'website',
-        'active'
+        $type,
+        $status
     );
 
     return $wpdb->get_results( $sql );
 }
 
-/**
- * Fetch a single Website Package by ID.
- *
- * @param int $id
- * @return object|null
- */
-function sfpp_get_website_package( $id ) {
+function sfpp_get_package_by_id( $id ) {
     global $wpdb;
 
     $id    = (int) $id;
-    $table = 'sf_packages'; // adjust if you used a prefix like wp_sf_packages
+    $table = 'sf_packages';
 
     if ( $id <= 0 ) {
         return null;
     }
 
     $sql = $wpdb->prepare(
-        "SELECT * FROM {$table} WHERE id = %d AND type = %s",
-        $id,
-        'website'
+        "SELECT * FROM {$table} WHERE id = %d",
+        $id
     );
 
     return $wpdb->get_row( $sql );
 }
 
 /**
- * Get the schema definition for Website Packages.
- *
- * This reads schemas/website-packages-schema.php and returns the array.
- *
- * @return array
+ * Type-specific helpers.
  */
-function sfpp_get_website_package_schema() {
-    $path = __DIR__ . '/schemas/website-packages-schema.php';
-
-    if ( file_exists( $path ) ) {
-        $schema = include $path;
-        if ( is_array( $schema ) ) {
-            return $schema;
-        }
-    }
-
-    return [];
+function sfpp_get_website_packages() {
+    return sfpp_get_packages_by_type( 'website', 'active' );
 }
 
+function sfpp_get_website_package( $id ) {
+    $row = sfpp_get_package_by_id( $id );
+    return ( $row && $row->type === 'website' ) ? $row : null;
+}
+
+function sfpp_get_hosting_packages() {
+    return sfpp_get_packages_by_type( 'hosting', 'active' );
+}
+
+function sfpp_get_hosting_package( $id ) {
+    $row = sfpp_get_package_by_id( $id );
+    return ( $row && $row->type === 'hosting' ) ? $row : null;
+}
+
+function sfpp_get_maintenance_packages() {
+    return sfpp_get_packages_by_type( 'maintenance', 'active' );
+}
+
+function sfpp_get_maintenance_package( $id ) {
+    $row = sfpp_get_package_by_id( $id );
+    return ( $row && $row->type === 'maintenance' ) ? $row : null;
+}
 
 /**
- * Get a value from a nested schema array using dot notation.
- * Example: key "pages.included_count" => $data['pages']['included_count']
+ * Schema helpers.
  */
 function sfpp_schema_get_value( $data, $key, $default = '' ) {
     if ( ! is_array( $data ) ) {
@@ -227,7 +238,7 @@ function sfpp_schema_get_value( $data, $key, $default = '' ) {
     $current = $data;
 
     foreach ( $parts as $part ) {
-        if ( ! is_array( $current ) || ! array_key_exists( $part, $current ) ) {
+        if ( ! isset( $current[ $part ] ) ) {
             return $default;
         }
         $current = $current[ $part ];
@@ -236,9 +247,6 @@ function sfpp_schema_get_value( $data, $key, $default = '' ) {
     return $current;
 }
 
-/**
- * Set a value in a nested schema array using dot notation.
- */
 function sfpp_schema_set_value( &$data, $key, $value ) {
     if ( ! is_array( $data ) ) {
         $data = [];
@@ -259,10 +267,6 @@ function sfpp_schema_set_value( &$data, $key, $value ) {
     $current[ $last ] = $value;
 }
 
-/**
- * Build an input name for a schema field key using nested array syntax.
- * "pages.included_count" => schema[pages][included_count]
- */
 function sfpp_schema_input_name( $key ) {
     $parts = explode( '.', $key );
     $name  = 'schema';
@@ -270,4 +274,34 @@ function sfpp_schema_input_name( $key ) {
         $name .= '[' . $part . ']';
     }
     return $name;
+}
+
+/**
+ * Schema getters.
+ */
+function sfpp_get_website_package_schema() {
+    $path = __DIR__ . '/schemas/website-packages-schema.php';
+    if ( file_exists( $path ) ) {
+        $schema = include $path;
+        return is_array( $schema ) ? $schema : [];
+    }
+    return [];
+}
+
+function sfpp_get_hosting_package_schema() {
+    $path = __DIR__ . '/schemas/hosting-packages-schema.php';
+    if ( file_exists( $path ) ) {
+        $schema = include $path;
+        return is_array( $schema ) ? $schema : [];
+    }
+    return [];
+}
+
+function sfpp_get_maintenance_package_schema() {
+    $path = __DIR__ . '/schemas/maintenance-packages-schema.php';
+    if ( file_exists( $path ) ) {
+        $schema = include $path;
+        return is_array( $schema ) ? $schema : [];
+    }
+    return [];
 }

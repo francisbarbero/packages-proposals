@@ -6,23 +6,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Handle front-end actions for the SFPP app (e.g. add package).
- *
- * This file is where we’ll keep ALL front-end POST action handlers
- * so the main plugin file stays small and easy to read.
+ * MASTER HANDLER — Executes all POST-based actions
  */
 function sfpp_handle_front_actions() {
-    // Only run on front-end.
+
     if ( is_admin() ) {
         return;
     }
 
-    // Require login + capability (adjust capability if needed).
+    // Only logged-in admins can use the system
     if ( ! is_user_logged_in() || ! current_user_can( 'manage_options' ) ) {
         return;
     }
 
-    // Only care about POST.
+    // Only POST requests
     if ( $_SERVER['REQUEST_METHOD'] !== 'POST' ) {
         return;
     }
@@ -33,9 +30,14 @@ function sfpp_handle_front_actions() {
 
     $action = sanitize_text_field( wp_unslash( $_POST['sfpp_action'] ) );
 
-     switch ( $action ) {
+    switch ( $action ) {
+
+        // Backwards-compatible: all of these mean "add a package"
         case 'add_package':
-            sfpp_action_add_package();
+        case 'add_website_package':
+        case 'add_hosting_package':
+        case 'add_maintenance_package':
+            sfpp_action_add_package( $action );
             break;
 
         case 'save_package':
@@ -54,63 +56,131 @@ function sfpp_handle_front_actions() {
             sfpp_action_unarchive_package();
             break;
     }
-
 }
 
 /**
- * Action: add a new Website Package with a placeholder name.
+ * CREATE A NEW PACKAGE (Website / Hosting / Maintenance)
+ *
+ * @param string $action The sfpp_action value from the POST (for BC).
  */
-function sfpp_action_add_package() {
-    if ( empty( $_POST['sfpp_add_package_nonce'] ) || ! wp_verify_nonce( $_POST['sfpp_add_package_nonce'], 'sfpp_add_package' ) ) {
+function sfpp_action_add_package( $action = 'add_package' ) {
+
+    // Accept old + new nonce names
+    $nonce_map = [
+        'sfpp_add_package_nonce'           => 'sfpp_add_package',
+        'sfpp_add_website_package_nonce'   => 'sfpp_add_website_package',
+        'sfpp_add_hosting_package_nonce'   => 'sfpp_add_hosting_package',
+        'sfpp_add_maintenance_package_nonce' => 'sfpp_add_maintenance_package',
+    ];
+
+    $nonce_ok = false;
+    foreach ( $nonce_map as $field => $nonce_action ) {
+        if ( ! empty( $_POST[ $field ] ) && wp_verify_nonce( $_POST[ $field ], $nonce_action ) ) {
+            $nonce_ok = true;
+            break;
+        }
+    }
+
+    if ( ! $nonce_ok ) {
         return;
     }
 
     global $wpdb;
-
-    // Adjust this if you actually created the table with a prefix like wp_sf_packages.
     $table = 'sf_packages';
 
-    $data = [
-        'type'              => 'website',
-        'name'              => 'New Website Package',
-        'short_description' => '',
-        'billing_model'     => 'one_off',
-        'base_price'        => 0.00,
-        'currency'          => 'PHP',
-        'group_label'       => '',
-        'status'            => 'active',
-        'schema_json'       => null,
-        'created_at'        => current_time( 'mysql' ),
-        'updated_at'        => current_time( 'mysql' ),
-    ];
+    // Figure out package type
+    $package_type = null;
 
-    $wpdb->insert( $table, $data );
-    $new_id = (int) $wpdb->insert_id;
-
-    $referer = wp_get_referer();
-    if ( ! $referer ) {
-        $referer = home_url();
+    // 1) Explicit hidden field wins
+    if ( isset( $_POST['package_type'] ) ) {
+        $package_type = sanitize_key( $_POST['package_type'] );
     }
 
-    $redirect = add_query_arg(
+    // 2) Otherwise infer from action name
+    if ( ! $package_type ) {
+        if ( $action === 'add_hosting_package' ) {
+            $package_type = 'hosting';
+        } elseif ( $action === 'add_maintenance_package' ) {
+            $package_type = 'maintenance';
+        } elseif ( $action === 'add_website_package' ) {
+            $package_type = 'website';
+        }
+    }
+
+    // 3) Otherwise infer from sfpp_section
+    if ( ! $package_type && ! empty( $_POST['sfpp_section'] ) ) {
+        $section = sanitize_key( $_POST['sfpp_section'] );
+        if ( $section === 'hosting' ) {
+            $package_type = 'hosting';
+        } elseif ( $section === 'maintenance' ) {
+            $package_type = 'maintenance';
+        } else {
+            $package_type = 'website';
+        }
+    }
+
+    // Final fallback
+    if ( ! $package_type ) {
+        $package_type = 'website';
+    }
+
+    // Decide defaults per type
+    if ( $package_type === 'hosting' ) {
+        $default_name  = 'New Hosting Package';
+        $billing_model = 'monthly';
+        $section       = 'hosting';
+    } elseif ( $package_type === 'maintenance' ) {
+        $default_name  = 'New Maintenance Package';
+        $billing_model = 'monthly';
+        $section       = 'maintenance';
+    } else {
+        $default_name  = 'New Website Package';
+        $billing_model = 'one_off';
+        $section       = 'packages';
+    }
+
+    // Insert new placeholder row
+    $wpdb->insert(
+        $table,
         [
-            'sfpp_section' => 'packages',
-            'sfpp_notice'  => 'package_created',
-            'sfpp_new_id'  => $new_id,
-        ],
-        $referer
+            'type'             => $package_type,
+            'name'             => $default_name,
+            'short_description'=> '',
+            'base_price'       => 0,
+            'currency'         => 'PHP',
+            'group_label'      => '',
+            'billing_model'    => $billing_model,
+            'status'           => 'active',
+            'schema_json'      => '{}',
+            'created_at'       => current_time( 'mysql' ),
+            'updated_at'       => current_time( 'mysql' ),
+        ]
     );
 
-    wp_safe_redirect( $redirect );
+    $new_id = $wpdb->insert_id;
+
+    // Redirect into the edit screen
+    $url = add_query_arg(
+        [
+            'sfpp_section' => $section,
+            'sfpp_view'    => 'edit',
+            'package_id'   => $new_id,
+            'sfpp_notice'  => 'package_created',
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
     exit;
 }
 
-
 /**
- * Action: save an existing Website Package (top-level + schema_json via schema).
+ * SAVE (Website / Hosting / Maintenance)
  */
 function sfpp_action_save_package() {
-    if ( empty( $_POST['sfpp_save_package_nonce'] ) || ! wp_verify_nonce( $_POST['sfpp_save_package_nonce'], 'sfpp_save_package' ) ) {
+
+    if ( empty( $_POST['sfpp_save_package_nonce'] ) ||
+         ! wp_verify_nonce( $_POST['sfpp_save_package_nonce'], 'sfpp_save_package' ) ) {
         return;
     }
 
@@ -119,199 +189,184 @@ function sfpp_action_save_package() {
     }
 
     global $wpdb;
-    $table = 'sf_packages'; // change if you used a prefix like wp_sf_packages
+    $table = 'sf_packages';
+    $id    = (int) $_POST['package_id'];
 
-    $id = (int) $_POST['package_id'];
+    // Load existing row
+    $row = $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id )
+    );
 
-    // Top-level columns.
-    $name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
-    $short_description = sanitize_textarea_field( wp_unslash( $_POST['short_description'] ?? '' ) );
-    $group_label       = sanitize_text_field( wp_unslash( $_POST['group_label'] ?? '' ) );
-    $billing_model     = sanitize_text_field( wp_unslash( $_POST['billing_model'] ?? 'one_off' ) );
-    $base_price        = isset( $_POST['base_price'] ) ? (float) $_POST['base_price'] : 0;
-    $currency          = sanitize_text_field( wp_unslash( $_POST['currency'] ?? 'PHP' ) );
-    $status_input      = isset( $_POST['status'] ) ? wp_unslash( $_POST['status'] ) : 'active';
-    $status            = in_array( $status_input, [ 'active', 'archived' ], true ) ? $status_input : 'active';
+    if ( ! $row ) {
+        return;
+    }
 
-    // Schema-driven fields (Website-specific).
-    $schema_def   = function_exists( 'sfpp_get_website_package_schema' ) ? sfpp_get_website_package_schema() : [];
-    $raw_schema   = isset( $_POST['schema'] ) && is_array( $_POST['schema'] ) ? $_POST['schema'] : [];
-    $schema_data  = [];
+    $type = $row->type;
 
-    if ( ! empty( $schema_def['groups'] ) && is_array( $schema_def['groups'] ) ) {
-        foreach ( $schema_def['groups'] as $group ) {
-            $fields = $group['fields'] ?? [];
-            if ( empty( $fields ) || ! is_array( $fields ) ) {
+    // Pick schema based on type
+    if ( $type === 'hosting' ) {
+        $schema_def = function_exists( 'sfpp_get_hosting_package_schema' ) ? sfpp_get_hosting_package_schema() : [];
+    } elseif ( $type === 'maintenance' ) {
+        $schema_def = function_exists( 'sfpp_get_maintenance_package_schema' ) ? sfpp_get_maintenance_package_schema() : [];
+    } else {
+        $schema_def = function_exists( 'sfpp_get_website_package_schema' ) ? sfpp_get_website_package_schema() : [];
+    }
+
+    // Basic fields
+    $name        = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+    $description = sanitize_textarea_field( wp_unslash( $_POST['short_description'] ?? '' ) );
+    $group       = sanitize_text_field( wp_unslash( $_POST['group_label'] ?? '' ) );
+    $price       = floatval( $_POST['base_price'] ?? 0 );
+    $status      = sanitize_text_field( wp_unslash( $_POST['status'] ?? 'active' ) );
+
+    // Billing & currency – preserved unless explicitly sent
+    $billing  = sanitize_text_field( wp_unslash( $_POST['billing_model'] ?? $row->billing_model ) );
+    $currency = sanitize_text_field( wp_unslash( $_POST['currency']      ?? $row->currency ) );
+
+    // Raw posted schema data
+    $posted_schema = isset( $_POST['schema'] ) && is_array( $_POST['schema'] )
+        ? wp_unslash( $_POST['schema'] )
+        : [];
+
+    // Build clean schema array
+    $clean_schema = [];
+
+    if ( ! empty( $schema_def['groups'] ) ) {
+        foreach ( $schema_def['groups'] as $group_def ) {
+            if ( empty( $group_def['fields'] ) ) {
                 continue;
             }
 
-            foreach ( $fields as $field ) {
+            foreach ( $group_def['fields'] as $field ) {
                 if ( empty( $field['key'] ) ) {
                     continue;
                 }
 
                 $key     = $field['key'];
                 $default = $field['default'] ?? '';
-                $type    = $field['type'] ?? 'text';
 
-                // Get the submitted value from nested $_POST['schema'][...]
-                $raw_value = sfpp_schema_get_value( $raw_schema, $key, $default );
-
-                // Normalise by field type.
-                if ( 'checkbox' === $type ) {
-                    $value = $raw_value ? 1 : 0;
-                } elseif ( 'number' === $type ) {
-                    $value = is_numeric( $raw_value ) ? ( 0 + $raw_value ) : 0;
-                } elseif ( 'textarea' === $type ) {
-                    $value = is_string( $raw_value ) ? sanitize_textarea_field( wp_unslash( $raw_value ) ) : '';
-                } else {
-                    // text, select, etc.
-                    $value = is_string( $raw_value ) ? sanitize_text_field( wp_unslash( $raw_value ) ) : $raw_value;
-                }
-
-                sfpp_schema_set_value( $schema_data, $key, $value );
+                $value = sfpp_schema_get_value( $posted_schema, $key, $default );
+                sfpp_schema_set_value( $clean_schema, $key, $value );
             }
         }
     }
 
-    $data = [
-        'name'              => $name,
-        'short_description' => $short_description,
-        'group_label'       => $group_label,
-        'billing_model'     => $billing_model,
-        'base_price'        => $base_price,
-        'currency'          => $currency,
-        'status'            => $status,
-        'schema_json'       => wp_json_encode( $schema_data ),
-        'updated_at'        => current_time( 'mysql' ),
-    ];
-
+    // Save row
     $wpdb->update(
         $table,
-        $data,
-        [ 'id' => $id ],
-        [ '%s', '%s', '%s', '%s', '%f', '%s', '%s', '%s' ],
-        [ '%d' ]
+        [
+            'name'             => $name,
+            'short_description'=> $description,
+            'group_label'      => $group,
+            'billing_model'    => $billing,
+            'base_price'       => $price,
+            'currency'         => $currency,
+            'status'           => $status,
+            'schema_json'      => wp_json_encode( $clean_schema ),
+            'updated_at'       => current_time( 'mysql' ),
+        ],
+        [ 'id' => $id ]
     );
 
-    $referer = wp_get_referer();
-    if ( ! $referer ) {
-        $referer = home_url();
-    }
+    // Redirect back to correct section
+    $section = $_POST['sfpp_section'] ?? (
+        $type === 'hosting' ? 'hosting' :
+        ($type === 'maintenance' ? 'maintenance' : 'packages')
+    );
 
-    $redirect = add_query_arg(
+    $url = add_query_arg(
         [
-            'sfpp_section' => 'packages',
+            'sfpp_section' => $section,
             'sfpp_notice'  => 'package_saved',
         ],
-        $referer
+        wp_get_referer() ?: home_url()
     );
 
-    wp_safe_redirect( $redirect );
+    wp_safe_redirect( $url );
     exit;
 }
 
-
 /**
- * Action: clone a Website Package (creates an archived copy).
+ * CLONE PACKAGE (any type)
  */
 function sfpp_action_clone_package() {
-    if ( empty( $_POST['sfpp_clone_package_nonce'] ) ) {
+
+    if ( empty( $_POST['sfpp_clone_package_nonce'] ) ||
+         empty( $_POST['package_id'] ) ) {
         return;
     }
 
-    $id = isset( $_POST['package_id'] ) ? (int) $_POST['package_id'] : 0;
-    if ( $id <= 0 ) {
-        return;
-    }
+    $id = (int) $_POST['package_id'];
 
-    $nonce_action = 'sfpp_clone_package_' . $id;
-    if ( ! wp_verify_nonce( $_POST['sfpp_clone_package_nonce'], $nonce_action ) ) {
+    if ( ! wp_verify_nonce( $_POST['sfpp_clone_package_nonce'], 'sfpp_clone_package_' . $id ) ) {
         return;
     }
 
     global $wpdb;
-    $table = 'sf_packages'; // adjust if needed
+    $table = 'sf_packages';
 
-    $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
-    if ( ! $row ) {
+    $original = $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
+        ARRAY_A
+    );
+
+    if ( ! $original ) {
         return;
     }
 
-    $wpdb->insert(
-        $table,
-        [
-            'type'              => $row->type,
-            'name'              => $row->name . ' (Copy)',
-            'short_description' => $row->short_description,
-            'billing_model'     => $row->billing_model,
-            'base_price'        => $row->base_price,
-            'currency'          => $row->currency,
-            'group_label'       => $row->group_label,
-            'status'            => 'archived', // clones start archived
-            'schema_json'       => $row->schema_json,
-            'created_at'        => current_time( 'mysql' ),
-            'updated_at'        => current_time( 'mysql' ),
-        ]
-    );
+    unset( $original['id'] );
 
-    $referer = wp_get_referer();
-    if ( ! $referer ) {
-        $referer = home_url();
-    }
+    $original['name']       = $original['name'] . ' (Copy)';
+    $original['status']     = 'active';
+    $original['created_at'] = current_time( 'mysql' );
+    $original['updated_at'] = current_time( 'mysql' );
 
-    $redirect = add_query_arg(
+    $wpdb->insert( $table, $original );
+
+    $section = $_POST['sfpp_section'] ?? 'packages';
+
+    $url = add_query_arg(
         [
-            'sfpp_section' => 'packages',
+            'sfpp_section' => $section,
             'sfpp_notice'  => 'package_cloned',
         ],
-        $referer
+        wp_get_referer() ?: home_url()
     );
 
-    wp_safe_redirect( $redirect );
+    wp_safe_redirect( $url );
     exit;
 }
 
 /**
- * Action: archive a Website Package.
+ * ARCHIVE / UNARCHIVE HANDLERS
  */
 function sfpp_action_archive_package() {
     sfpp_update_package_status_and_redirect( 'archived', 'package_archived' );
 }
 
-/**
- * Action: unarchive a Website Package.
- */
 function sfpp_action_unarchive_package() {
     sfpp_update_package_status_and_redirect( 'active', 'package_unarchived' );
 }
 
-/**
- * Helper: update status and redirect with a notice.
- *
- * @param string $new_status  'active' or 'archived'
- * @param string $notice_key  e.g. 'package_archived'
- */
 function sfpp_update_package_status_and_redirect( $new_status, $notice_key ) {
-    if ( empty( $_POST['package_id'] ) || empty( $_POST['sfpp_package_status_nonce'] ) ) {
+
+    if ( empty( $_POST['sfpp_package_status_nonce'] ) ||
+         empty( $_POST['package_id'] ) ) {
         return;
     }
 
     $id = (int) $_POST['package_id'];
-    if ( $id <= 0 ) {
-        return;
-    }
 
-    $nonce_action = ( 'archived' === $new_status )
+    $expected_nonce = ( $new_status === 'archived' )
         ? 'sfpp_archive_package_' . $id
         : 'sfpp_unarchive_package_' . $id;
 
-    if ( ! wp_verify_nonce( $_POST['sfpp_package_status_nonce'], $nonce_action ) ) {
+    if ( ! wp_verify_nonce( $_POST['sfpp_package_status_nonce'], $expected_nonce ) ) {
         return;
     }
 
     global $wpdb;
-    $table = 'sf_packages'; // adjust if needed
+    $table = 'sf_packages';
 
     $wpdb->update(
         $table,
@@ -319,24 +374,19 @@ function sfpp_update_package_status_and_redirect( $new_status, $notice_key ) {
             'status'     => $new_status,
             'updated_at' => current_time( 'mysql' ),
         ],
-        [ 'id' => $id ],
-        [ '%s', '%s' ],
-        [ '%d' ]
+        [ 'id' => $id ]
     );
 
-    $referer = wp_get_referer();
-    if ( ! $referer ) {
-        $referer = home_url();
-    }
+    $section = $_POST['sfpp_section'] ?? 'packages';
 
-    $redirect = add_query_arg(
+    $url = add_query_arg(
         [
-            'sfpp_section' => 'packages',
-        'sfpp_notice'  => $notice_key,
+            'sfpp_section' => $section,
+            'sfpp_notice'  => $notice_key,
         ],
-        $referer
+        wp_get_referer() ?: home_url()
     );
 
-    wp_safe_redirect( $redirect );
+    wp_safe_redirect( $url );
     exit;
 }
