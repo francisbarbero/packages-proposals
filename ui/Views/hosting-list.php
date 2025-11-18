@@ -65,8 +65,8 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
             <tbody>
                 <?php foreach ( $packages as $pkg ) : ?>
                     <tr>
-                        <td><?php echo esc_html( $pkg->name ); ?></td>
-                        <td><?php echo esc_html( $pkg->short_description ); ?></td>
+                        <td><?php echo esc_html( $pkg->name ?? '' ); ?></td>
+                        <td><?php echo esc_html( $pkg->short_description ?? '' ); ?></td>
                         <td>
                             <?php
                             $currency = $pkg->currency ?: 'PHP';
@@ -74,7 +74,7 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                             echo esc_html( $currency . ' ' . $price );
                             ?>
                         </td>
-                        <td><?php echo esc_html( $pkg->group_label ); ?></td>
+                        <td><?php echo esc_html( $pkg->group_label ?? '' ); ?></td>
                         <td class="sfpp-table-actions">
                             <?php
                             $base_url = remove_query_arg( [ 'sfpp_view', 'package_id', 'sfpp_notice', 'sfpp_new_id' ] );

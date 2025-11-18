@@ -60,11 +60,11 @@ if ( ! empty( $package->schema_json ) ) {
 }
 
 // Basic fields (top-level columns).
-$name        = $package->name;
-$description = $package->short_description;
-$group       = $package->group_label;
-$price       = $package->base_price;
-$status      = $package->status;
+$name        = $package->name ?? '';
+$description = $package->short_description ?? '';
+$group       = $package->group_label ?? '';
+$price       = $package->base_price ?? 0;
+$status      = $package->status ?? 'active';
 
 // We still track these in DB but keep them invisible in the UI.
 $billing  = $package->billing_model ?: ( 'hosting' === $type ? 'monthly' : 'one_off' );

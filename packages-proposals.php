@@ -8,26 +8,16 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Simple autoloader placeholder for later.
-spl_autoload_register( function ( $class ) {
-    if ( strpos( $class, 'SFPP\\' ) !== 0 ) {
-        return;
-    }
-    $relative = str_replace( [ 'SFPP\\', '\\' ], [ '', DIRECTORY_SEPARATOR ], $class );
-    $path     = __DIR__ . DIRECTORY_SEPARATOR . $relative . '.php';
-
-    if ( file_exists( $path ) ) {
-        require_once $path;
-    }
-} );
+// Load simplified package management functions
+require_once __DIR__ . '/includes/package-functions.php';
 
 // Front-end actions.
 require_once __DIR__ . '/ui/front-actions.php';
 // Schema form renderer.
 require_once __DIR__ . '/ui/schema-form.php';
 
-// Handle POST actions before rendering.
-add_action( 'template_redirect', 'sfpp_handle_front_actions' );
+// Handle POST actions - use wp action instead of template_redirect for better user session timing
+add_action( 'wp', 'sfpp_handle_front_actions' );
 
 /**
  * Shortcode to render the front-end app.
@@ -164,66 +154,45 @@ add_action( 'wp_enqueue_scripts', function () {
 /**
  * Generic helpers.
  */
+/**
+ * Simplified helper functions using new package management system.
+ * These maintain backward compatibility while using the simplified architecture.
+ */
+
 function sfpp_get_packages_by_type( $type, $status = 'active' ) {
-    global $wpdb;
-
-    $table = 'sf_packages';
-
-    $sql = $wpdb->prepare(
-        "SELECT * FROM {$table} WHERE type = %s AND status = %s ORDER BY name ASC",
-        $type,
-        $status
-    );
-
-    return $wpdb->get_results( $sql );
+    return sfpp_get_packages( $type, $status );
 }
 
 function sfpp_get_package_by_id( $id ) {
-    global $wpdb;
-
-    $id    = (int) $id;
-    $table = 'sf_packages';
-
-    if ( $id <= 0 ) {
-        return null;
-    }
-
-    $sql = $wpdb->prepare(
-        "SELECT * FROM {$table} WHERE id = %d",
-        $id
-    );
-
-    return $wpdb->get_row( $sql );
+    return sfpp_get_package( $id );
 }
 
-/**
- * Type-specific helpers.
- */
+// Type-specific helpers
 function sfpp_get_website_packages() {
-    return sfpp_get_packages_by_type( 'website', 'active' );
+    return sfpp_get_packages( 'website', 'active' );
 }
 
 function sfpp_get_website_package( $id ) {
-    $row = sfpp_get_package_by_id( $id );
-    return ( $row && $row->type === 'website' ) ? $row : null;
+    $package = sfpp_get_package( $id );
+    return ( $package && $package->type === 'website' ) ? $package : null;
 }
 
 function sfpp_get_hosting_packages() {
-    return sfpp_get_packages_by_type( 'hosting', 'active' );
+    return sfpp_get_packages( 'hosting', 'active' );
 }
 
 function sfpp_get_hosting_package( $id ) {
-    $row = sfpp_get_package_by_id( $id );
-    return ( $row && $row->type === 'hosting' ) ? $row : null;
+    $package = sfpp_get_package( $id );
+    return ( $package && $package->type === 'hosting' ) ? $package : null;
 }
 
 function sfpp_get_maintenance_packages() {
-    return sfpp_get_packages_by_type( 'maintenance', 'active' );
+    return sfpp_get_packages( 'maintenance', 'active' );
 }
 
 function sfpp_get_maintenance_package( $id ) {
-    $row = sfpp_get_package_by_id( $id );
-    return ( $row && $row->type === 'maintenance' ) ? $row : null;
+    $package = sfpp_get_package( $id );
+    return ( $package && $package->type === 'maintenance' ) ? $package : null;
 }
 
 /**
@@ -305,3 +274,4 @@ function sfpp_get_maintenance_package_schema() {
     }
     return [];
 }
+

@@ -1,5 +1,8 @@
 <?php
-// ui/front-actions.php
+/**
+ * Simplified Front-end Action Handlers
+ * Uses the new simplified package management functions
+ */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -14,8 +17,8 @@ function sfpp_handle_front_actions() {
         return;
     }
 
-    // Only logged-in admins can use the system
-    if ( ! is_user_logged_in() || ! current_user_can( 'manage_options' ) ) {
+    // Only logged-in users can use the system
+    if ( ! is_user_logged_in() ) {
         return;
     }
 
@@ -60,8 +63,7 @@ function sfpp_handle_front_actions() {
 
 /**
  * CREATE A NEW PACKAGE (Website / Hosting / Maintenance)
- *
- * @param string $action The sfpp_action value from the POST (for BC).
+ * Uses simplified package management functions.
  */
 function sfpp_action_add_package( $action = 'add_package' ) {
 
@@ -85,86 +87,26 @@ function sfpp_action_add_package( $action = 'add_package' ) {
         return;
     }
 
-    global $wpdb;
-    $table = 'sf_packages';
+    // Add action to POST data for type determination
+    $_POST['sfpp_action'] = $action;
 
-    // Figure out package type
-    $package_type = null;
+    // Create package using simplified functions
+    $package_id = sfpp_create_package_from_request( $_POST );
 
-    // 1) Explicit hidden field wins
-    if ( isset( $_POST['package_type'] ) ) {
-        $package_type = sanitize_key( $_POST['package_type'] );
+    if ( ! $package_id ) {
+        return;
     }
 
-    // 2) Otherwise infer from action name
-    if ( ! $package_type ) {
-        if ( $action === 'add_hosting_package' ) {
-            $package_type = 'hosting';
-        } elseif ( $action === 'add_maintenance_package' ) {
-            $package_type = 'maintenance';
-        } elseif ( $action === 'add_website_package' ) {
-            $package_type = 'website';
-        }
-    }
-
-    // 3) Otherwise infer from sfpp_section
-    if ( ! $package_type && ! empty( $_POST['sfpp_section'] ) ) {
-        $section = sanitize_key( $_POST['sfpp_section'] );
-        if ( $section === 'hosting' ) {
-            $package_type = 'hosting';
-        } elseif ( $section === 'maintenance' ) {
-            $package_type = 'maintenance';
-        } else {
-            $package_type = 'website';
-        }
-    }
-
-    // Final fallback
-    if ( ! $package_type ) {
-        $package_type = 'website';
-    }
-
-    // Decide defaults per type
-    if ( $package_type === 'hosting' ) {
-        $default_name  = 'New Hosting Package';
-        $billing_model = 'monthly';
-        $section       = 'hosting';
-    } elseif ( $package_type === 'maintenance' ) {
-        $default_name  = 'New Maintenance Package';
-        $billing_model = 'monthly';
-        $section       = 'maintenance';
-    } else {
-        $default_name  = 'New Website Package';
-        $billing_model = 'one_off';
-        $section       = 'packages';
-    }
-
-    // Insert new placeholder row
-    $wpdb->insert(
-        $table,
-        [
-            'type'             => $package_type,
-            'name'             => $default_name,
-            'short_description'=> '',
-            'base_price'       => 0,
-            'currency'         => 'PHP',
-            'group_label'      => '',
-            'billing_model'    => $billing_model,
-            'status'           => 'active',
-            'schema_json'      => '{}',
-            'created_at'       => current_time( 'mysql' ),
-            'updated_at'       => current_time( 'mysql' ),
-        ]
-    );
-
-    $new_id = $wpdb->insert_id;
+    // Get the package to determine redirect section
+    $package = sfpp_get_package( $package_id );
+    $section = sfpp_get_redirect_section_for_type( $package->type );
 
     // Redirect into the edit screen
     $url = add_query_arg(
         [
             'sfpp_section' => $section,
             'sfpp_view'    => 'edit',
-            'package_id'   => $new_id,
+            'package_id'   => $package_id,
             'sfpp_notice'  => 'package_created',
         ],
         wp_get_referer() ?: home_url()
@@ -176,6 +118,7 @@ function sfpp_action_add_package( $action = 'add_package' ) {
 
 /**
  * SAVE (Website / Hosting / Maintenance)
+ * Uses simplified package management functions.
  */
 function sfpp_action_save_package() {
 
@@ -188,91 +131,18 @@ function sfpp_action_save_package() {
         return;
     }
 
-    global $wpdb;
-    $table = 'sf_packages';
-    $id    = (int) $_POST['package_id'];
+    $id = (int) $_POST['package_id'];
 
-    // Load existing row
-    $row = $wpdb->get_row(
-        $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id )
-    );
+    // Update package using simplified functions
+    $success = sfpp_update_package_from_request( $id, $_POST );
 
-    if ( ! $row ) {
+    if ( ! $success ) {
         return;
     }
 
-    $type = $row->type;
-
-    // Pick schema based on type
-    if ( $type === 'hosting' ) {
-        $schema_def = function_exists( 'sfpp_get_hosting_package_schema' ) ? sfpp_get_hosting_package_schema() : [];
-    } elseif ( $type === 'maintenance' ) {
-        $schema_def = function_exists( 'sfpp_get_maintenance_package_schema' ) ? sfpp_get_maintenance_package_schema() : [];
-    } else {
-        $schema_def = function_exists( 'sfpp_get_website_package_schema' ) ? sfpp_get_website_package_schema() : [];
-    }
-
-    // Basic fields
-    $name        = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
-    $description = sanitize_textarea_field( wp_unslash( $_POST['short_description'] ?? '' ) );
-    $group       = sanitize_text_field( wp_unslash( $_POST['group_label'] ?? '' ) );
-    $price       = floatval( $_POST['base_price'] ?? 0 );
-    $status      = sanitize_text_field( wp_unslash( $_POST['status'] ?? 'active' ) );
-
-    // Billing & currency – preserved unless explicitly sent
-    $billing  = sanitize_text_field( wp_unslash( $_POST['billing_model'] ?? $row->billing_model ) );
-    $currency = sanitize_text_field( wp_unslash( $_POST['currency']      ?? $row->currency ) );
-
-    // Raw posted schema data
-    $posted_schema = isset( $_POST['schema'] ) && is_array( $_POST['schema'] )
-        ? wp_unslash( $_POST['schema'] )
-        : [];
-
-    // Build clean schema array
-    $clean_schema = [];
-
-    if ( ! empty( $schema_def['groups'] ) ) {
-        foreach ( $schema_def['groups'] as $group_def ) {
-            if ( empty( $group_def['fields'] ) ) {
-                continue;
-            }
-
-            foreach ( $group_def['fields'] as $field ) {
-                if ( empty( $field['key'] ) ) {
-                    continue;
-                }
-
-                $key     = $field['key'];
-                $default = $field['default'] ?? '';
-
-                $value = sfpp_schema_get_value( $posted_schema, $key, $default );
-                sfpp_schema_set_value( $clean_schema, $key, $value );
-            }
-        }
-    }
-
-    // Save row
-    $wpdb->update(
-        $table,
-        [
-            'name'             => $name,
-            'short_description'=> $description,
-            'group_label'      => $group,
-            'billing_model'    => $billing,
-            'base_price'       => $price,
-            'currency'         => $currency,
-            'status'           => $status,
-            'schema_json'      => wp_json_encode( $clean_schema ),
-            'updated_at'       => current_time( 'mysql' ),
-        ],
-        [ 'id' => $id ]
-    );
-
-    // Redirect back to correct section
-    $section = $_POST['sfpp_section'] ?? (
-        $type === 'hosting' ? 'hosting' :
-        ($type === 'maintenance' ? 'maintenance' : 'packages')
-    );
+    // Get the package to determine redirect section
+    $package = sfpp_get_package( $id );
+    $section = sfpp_get_redirect_section_for_type( $package->type );
 
     $url = add_query_arg(
         [
@@ -287,7 +157,8 @@ function sfpp_action_save_package() {
 }
 
 /**
- * CLONE PACKAGE (any type)
+ * CLONE A PACKAGE
+ * Uses simplified package management functions.
  */
 function sfpp_action_clone_package() {
 
@@ -302,28 +173,16 @@ function sfpp_action_clone_package() {
         return;
     }
 
-    global $wpdb;
-    $table = 'sf_packages';
+    // Clone package using simplified functions
+    $cloned_id = sfpp_clone_package( $id );
 
-    $original = $wpdb->get_row(
-        $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
-        ARRAY_A
-    );
-
-    if ( ! $original ) {
+    if ( ! $cloned_id ) {
         return;
     }
 
-    unset( $original['id'] );
-
-    $original['name']       = $original['name'] . ' (Copy)';
-    $original['status']     = 'active';
-    $original['created_at'] = current_time( 'mysql' );
-    $original['updated_at'] = current_time( 'mysql' );
-
-    $wpdb->insert( $table, $original );
-
-    $section = $_POST['sfpp_section'] ?? 'packages';
+    // Get the cloned package to determine redirect section
+    $package = sfpp_get_package( $cloned_id );
+    $section = sfpp_get_redirect_section_for_type( $package->type );
 
     $url = add_query_arg(
         [
@@ -338,16 +197,22 @@ function sfpp_action_clone_package() {
 }
 
 /**
- * ARCHIVE / UNARCHIVE HANDLERS
+ * ARCHIVE A PACKAGE
  */
 function sfpp_action_archive_package() {
     sfpp_update_package_status_and_redirect( 'archived', 'package_archived' );
 }
 
+/**
+ * UNARCHIVE A PACKAGE
+ */
 function sfpp_action_unarchive_package() {
     sfpp_update_package_status_and_redirect( 'active', 'package_unarchived' );
 }
 
+/**
+ * Update package status and redirect.
+ */
 function sfpp_update_package_status_and_redirect( $new_status, $notice_key ) {
 
     if ( empty( $_POST['sfpp_package_status_nonce'] ) ||
@@ -365,19 +230,18 @@ function sfpp_update_package_status_and_redirect( $new_status, $notice_key ) {
         return;
     }
 
-    global $wpdb;
-    $table = 'sf_packages';
+    // Update package status using simplified functions
+    $success = ( $new_status === 'archived' )
+        ? sfpp_archive_package( $id )
+        : sfpp_unarchive_package( $id );
 
-    $wpdb->update(
-        $table,
-        [
-            'status'     => $new_status,
-            'updated_at' => current_time( 'mysql' ),
-        ],
-        [ 'id' => $id ]
-    );
+    if ( ! $success ) {
+        return;
+    }
 
-    $section = $_POST['sfpp_section'] ?? 'packages';
+    // Get updated package to determine section
+    $package = sfpp_get_package( $id );
+    $section = $package ? sfpp_get_redirect_section_for_type( $package->type ) : 'packages';
 
     $url = add_query_arg(
         [
