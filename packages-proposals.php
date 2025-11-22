@@ -11,10 +11,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Load simplified package management functions
 require_once __DIR__ . '/includes/package-functions.php';
 
+// Load proposal management functions
+require_once __DIR__ . '/includes/proposal-functions.php';
+
+// Load asset management functions
+require_once __DIR__ . '/includes/asset-functions.php';
+
 // Front-end actions.
 require_once __DIR__ . '/ui/front-actions.php';
 // Schema form renderer.
 require_once __DIR__ . '/ui/schema-form.php';
+
+// Plugin activation: create database tables
+register_activation_hook( __FILE__, 'sfpp_activate_plugin' );
+
+function sfpp_activate_plugin() {
+    // Create proposal tables
+    if ( function_exists( 'sfpp_create_proposal_tables' ) ) {
+        sfpp_create_proposal_tables();
+    }
+    // Create assets table
+    if ( function_exists( 'sfpp_create_assets_table' ) ) {
+        sfpp_create_assets_table();
+    }
+}
 
 // Handle POST actions - use wp action instead of template_redirect for better user session timing
 add_action( 'wp', 'sfpp_handle_front_actions' );
@@ -28,12 +48,7 @@ add_shortcode( 'sfpp_app', function () {
     }
 
     $section = isset( $_GET['sfpp_section'] ) ? sanitize_key( $_GET['sfpp_section'] ) : 'dashboard';
-
-    $allowed_sections = [ 'dashboard', 'packages', 'hosting', 'maintenance', 'extras', 'proposals' ];
-    if ( ! in_array( $section, $allowed_sections, true ) ) {
-        $section = 'dashboard';
-    }
-
+    
     ob_start();
     ?>
     <div id="sfpp-app" class="sfpp-app">
@@ -71,6 +86,7 @@ function sfpp_render_app_nav( $active_section ) {
         'maintenance' => 'Maintenance Packages',
         'extras'      => 'Website Extras',
         'proposals'   => 'Proposals',
+        'assets'      => 'Assets',
     ];
     ?>
     <nav class="sfpp-nav">
@@ -117,7 +133,13 @@ function sfpp_render_app_section( $section ) {
             break;
 
         case 'proposals':
-            $view = $base_dir . '/proposals-placeholder.php';
+            $view_type   = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $proposal_id = isset( $_GET['proposal_id'] ) ? (int) $_GET['proposal_id'] : 0;
+            $view        = ( 'edit' === $view_type && $proposal_id > 0 ) ? $base_dir . '/proposal-edit.php' : $base_dir . '/proposals-list.php';
+            break;
+
+        case 'assets':
+            $view = $base_dir . '/assets-list.php';
             break;
 
         case 'dashboard':
