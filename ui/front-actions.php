@@ -13,16 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 function sfpp_handle_front_actions() {
 
-    if ( is_admin() ) {
-        return;
-    }
-
-    // Only logged-in users can use the system
-    if ( ! is_user_logged_in() ) {
-        return;
-    }
-
-    // Only POST requests
+    // Only care about POSTs at all
     if ( $_SERVER['REQUEST_METHOD'] !== 'POST' ) {
         return;
     }
@@ -31,22 +22,11 @@ function sfpp_handle_front_actions() {
         return;
     }
 
-    $action = sanitize_text_field( wp_unslash( $_POST['sfpp_action'] ) );
-
-    // Section whitelist guard
-    $section = isset( $_POST['sfpp_section'] ) ? sanitize_key( $_POST['sfpp_section'] ) : '';
-
-    if ( ! in_array(
-            $section,
-            [ 'packages', 'hosting', 'maintenance', 'proposals', 'assets' ],
-            true
-        ) ) {
-        return;
-    }
+    $action = sanitize_key( $_POST['sfpp_action'] );
 
     switch ( $action ) {
 
-        // Backwards-compatible: all of these mean "add a package"
+        // All package add actions
         case 'add_package':
         case 'add_website_package':
         case 'add_hosting_package':
@@ -95,6 +75,10 @@ function sfpp_handle_front_actions() {
             sfpp_action_add_packages_to_proposal();
             break;
 
+        case 'add_extras_to_proposal':
+            sfpp_action_add_extras_to_proposal();
+            break;
+
         // Asset actions
         case 'add_asset':
             sfpp_action_add_asset();
@@ -106,6 +90,33 @@ function sfpp_handle_front_actions() {
 
         case 'delete_asset':
             sfpp_action_delete_asset();
+            break;
+
+        // Extra actions
+        case 'save_extra':
+            sfpp_action_save_extra();
+            break;
+
+        case 'delete_extra':
+            sfpp_action_delete_extra();
+            break;
+
+        // Populate actions
+        case 'save_populate':
+            sfpp_action_save_populate();
+            break;
+
+        case 'delete_populate':
+            sfpp_action_delete_populate();
+            break;
+
+        // Brochure actions
+        case 'save_brochure':
+            sfpp_action_save_brochure();
+            break;
+
+        case 'delete_brochure':
+            sfpp_action_delete_brochure();
             break;
     }
 }
@@ -354,6 +365,22 @@ function sfpp_action_save_proposal() {
 
     $id = (int) $_POST['proposal_id'];
 
+    // Handle packages_to_add before saving (add them as line items)
+    if ( ! empty( $_POST['packages_to_add'] ) && is_array( $_POST['packages_to_add'] ) ) {
+        $package_ids = array_filter( array_map( 'intval', $_POST['packages_to_add'] ) );
+        if ( ! empty( $package_ids ) && function_exists( 'sfpp_add_packages_to_proposal_items' ) ) {
+            sfpp_add_packages_to_proposal_items( $id, $package_ids );
+        }
+    }
+
+    // Handle extras_to_add before saving (add them as line items)
+    if ( ! empty( $_POST['extras_to_add'] ) && is_array( $_POST['extras_to_add'] ) ) {
+        $extra_ids = array_filter( array_map( 'intval', $_POST['extras_to_add'] ) );
+        if ( ! empty( $extra_ids ) && function_exists( 'sfpp_add_extras_to_proposal_items' ) ) {
+            sfpp_add_extras_to_proposal_items( $id, $extra_ids );
+        }
+    }
+
     // Update proposal using simplified functions
     $success = sfpp_update_proposal_from_request( $id, $_POST );
 
@@ -511,6 +538,48 @@ function sfpp_action_add_packages_to_proposal() {
 }
 
 /**
+ * Add selected extras as new proposal items.
+ */
+function sfpp_action_add_extras_to_proposal() {
+    if ( empty( $_POST['sfpp_add_extras_nonce'] ) ||
+         ! wp_verify_nonce( $_POST['sfpp_add_extras_nonce'], 'sfpp_add_extras_to_proposal' ) ) {
+        return;
+    }
+
+    if ( empty( $_POST['proposal_id'] ) ) {
+        return;
+    }
+
+    $proposal_id = (int) $_POST['proposal_id'];
+    if ( $proposal_id <= 0 ) {
+        return;
+    }
+
+    $extra_ids = [];
+    if ( ! empty( $_POST['extra_ids'] ) && is_array( $_POST['extra_ids'] ) ) {
+        $extra_ids = array_map( 'intval', $_POST['extra_ids'] );
+    }
+
+    if ( ! empty( $extra_ids ) && function_exists( 'sfpp_add_extras_to_proposal_items' ) ) {
+        sfpp_add_extras_to_proposal_items( $proposal_id, $extra_ids );
+    }
+
+    // Redirect back to the same proposal edit screen.
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'proposals',
+            'sfpp_view'    => 'edit',
+            'proposal_id'  => $proposal_id,
+            'sfpp_notice'  => 'proposal_extras_added',
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
  * CREATE A NEW ASSET
  * Uses simplified asset management functions.
  */
@@ -603,6 +672,239 @@ function sfpp_action_delete_asset() {
         [
             'sfpp_section' => 'assets',
             'sfpp_notice'  => 'asset_deleted',
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * SAVE EXTRA (Create or Update)
+ */
+function sfpp_action_save_extra() {
+
+    if ( empty( $_POST['sfpp_save_extra_nonce'] ) ||
+         ! wp_verify_nonce( $_POST['sfpp_save_extra_nonce'], 'sfpp_save_extra' ) ) {
+        return;
+    }
+
+    $is_new = empty( $_POST['extra_id'] );
+    $extra_id = 0;
+
+    if ( $is_new ) {
+        // Create new extra
+        $extra_id = sfpp_create_extra_from_request( $_POST );
+        $notice = 'extra_created';
+    } else {
+        // Update existing extra
+        $extra_id = (int) $_POST['extra_id'];
+        $success = sfpp_update_extra_from_request( $extra_id, $_POST );
+        $notice = 'extra_saved';
+
+        if ( ! $success ) {
+            return;
+        }
+    }
+
+    if ( ! $extra_id ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'extras',
+            'sfpp_notice'  => $notice,
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * DELETE EXTRA
+ */
+function sfpp_action_delete_extra() {
+
+    if ( empty( $_POST['sfpp_delete_extra_nonce'] ) ||
+         empty( $_POST['extra_id'] ) ) {
+        return;
+    }
+
+    $id = (int) $_POST['extra_id'];
+
+    if ( ! wp_verify_nonce( $_POST['sfpp_delete_extra_nonce'], 'sfpp_delete_extra_' . $id ) ) {
+        return;
+    }
+
+    // Delete extra using simplified functions
+    $success = sfpp_delete_extra( $id );
+
+    if ( ! $success ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'extras',
+            'sfpp_notice'  => 'extra_deleted',
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * SAVE POPULATE (Create or Update)
+ */
+function sfpp_action_save_populate() {
+
+    if ( empty( $_POST['sfpp_save_populate_nonce'] ) ||
+         ! wp_verify_nonce( $_POST['sfpp_save_populate_nonce'], 'sfpp_save_populate' ) ) {
+        return;
+    }
+
+    $is_new     = empty( $_POST['populate_id'] );
+    $populate_id = 0;
+
+    if ( $is_new ) {
+        $populate_id = sfpp_create_populate_from_request( $_POST );
+        $notice      = 'populate_created';
+    } else {
+        $populate_id = (int) $_POST['populate_id'];
+        $success     = sfpp_update_populate_from_request( $populate_id, $_POST );
+        $notice      = 'populate_saved';
+
+        if ( ! $success ) {
+            return;
+        }
+    }
+
+    if ( ! $populate_id ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'populates',
+            'sfpp_notice'  => $notice,
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * DELETE POPULATE
+ */
+function sfpp_action_delete_populate() {
+
+    if ( empty( $_POST['sfpp_delete_populate_nonce'] ) ||
+         empty( $_POST['populate_id'] ) ) {
+        return;
+    }
+
+    $id = (int) $_POST['populate_id'];
+
+    if ( ! wp_verify_nonce( $_POST['sfpp_delete_populate_nonce'], 'sfpp_delete_populate_' . $id ) ) {
+        return;
+    }
+
+    $success = sfpp_delete_populate( $id );
+
+    if ( ! $success ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'populates',
+            'sfpp_notice'  => 'populate_deleted',
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * SAVE BROCHURE (Create or Update)
+ */
+function sfpp_action_save_brochure() {
+
+    if ( empty( $_POST['sfpp_save_brochure_nonce'] ) ||
+         ! wp_verify_nonce( $_POST['sfpp_save_brochure_nonce'], 'sfpp_save_brochure' ) ) {
+        return;
+    }
+
+    $is_new      = empty( $_POST['brochure_id'] );
+    $brochure_id = 0;
+
+    if ( $is_new ) {
+        // Create new brochure
+        $brochure_id = sfpp_create_brochure_from_request( $_POST );
+        $notice      = 'brochure_created';
+    } else {
+        // Update existing brochure
+        $brochure_id = (int) $_POST['brochure_id'];
+        $success     = sfpp_update_brochure_from_request( $brochure_id, $_POST );
+        $notice      = 'brochure_saved';
+
+        if ( ! $success ) {
+            return;
+        }
+    }
+
+    if ( ! $brochure_id ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'brochures',
+            'sfpp_notice'  => $notice,
+        ],
+        wp_get_referer() ?: home_url()
+    );
+
+    wp_safe_redirect( $url );
+    exit;
+}
+
+/**
+ * DELETE BROCHURE
+ */
+function sfpp_action_delete_brochure() {
+
+    if ( empty( $_POST['sfpp_delete_brochure_nonce'] ) ||
+         empty( $_POST['brochure_id'] ) ) {
+        return;
+    }
+
+    $id = (int) $_POST['brochure_id'];
+
+    if ( ! wp_verify_nonce( $_POST['sfpp_delete_brochure_nonce'], 'sfpp_delete_brochure_' . $id ) ) {
+        return;
+    }
+
+    $success = sfpp_delete_brochure( $id );
+
+    if ( ! $success ) {
+        return;
+    }
+
+    $url = add_query_arg(
+        [
+            'sfpp_section' => 'brochures',
+            'sfpp_notice'  => 'brochure_deleted',
         ],
         wp_get_referer() ?: home_url()
     );

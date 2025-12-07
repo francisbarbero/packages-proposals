@@ -9,6 +9,39 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Create database table for packages system.
+ * Call this during plugin activation.
+ */
+function sfpp_create_packages_table() {
+    global $wpdb;
+
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS sf_packages (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        type varchar(50) NOT NULL DEFAULT 'website',
+        name varchar(255) NOT NULL DEFAULT '',
+        group_label varchar(100) NOT NULL DEFAULT '',
+        short_description text,
+        billing_model varchar(20) NOT NULL DEFAULT 'one_off',
+        currency varchar(10) NOT NULL DEFAULT 'PHP',
+        base_price decimal(10,2) NOT NULL DEFAULT 0.00,
+        status varchar(20) NOT NULL DEFAULT 'active',
+        schema_json longtext,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY type (type),
+        KEY status (status)
+    ) $charset_collate;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta( $sql );
+
+    update_option( 'sfpp_packages_db_version', '1.0' );
+}
+
+/**
  * Get default values for a package type.
  */
 function sfpp_get_package_defaults( $type ) {
@@ -358,34 +391,6 @@ function sfpp_get_schema_for_type( $type ) {
         default:
             return function_exists( 'sfpp_get_website_package_schema' ) ? sfpp_get_website_package_schema() : [];
     }
-}
-
-/**
- * Process schema data from form submission.
- */
-function sfpp_process_schema_data( $schema, $posted_data ) {
-    $clean_schema = [];
-
-    if ( ! empty( $schema['groups'] ) ) {
-        foreach ( $schema['groups'] as $group ) {
-            if ( empty( $group['fields'] ) ) {
-                continue;
-            }
-
-            foreach ( $group['fields'] as $field ) {
-                if ( empty( $field['key'] ) ) {
-                    continue;
-                }
-
-                $key = $field['key'];
-                $default = $field['default'] ?? '';
-                $value = sfpp_schema_get_value( $posted_data, $key, $default );
-                sfpp_schema_set_value( $clean_schema, $key, $value );
-            }
-        }
-    }
-
-    return $clean_schema;
 }
 
 /**

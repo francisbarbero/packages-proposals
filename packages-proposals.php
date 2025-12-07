@@ -8,6 +8,12 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+// Autoload Composer dependencies (e.g. mPDF) if present.
+$sfpp_autoload = __DIR__ . '/vendor/autoload.php';
+if ( file_exists( $sfpp_autoload ) ) {
+    require_once $sfpp_autoload;
+}
+
 // Load simplified package management functions
 require_once __DIR__ . '/includes/package-functions.php';
 
@@ -16,6 +22,26 @@ require_once __DIR__ . '/includes/proposal-functions.php';
 
 // Load asset management functions
 require_once __DIR__ . '/includes/asset-functions.php';
+
+// Load extra management functions
+require_once __DIR__ . '/includes/extra-functions.php';
+
+// Load populates management functions
+require_once __DIR__ . '/includes/populates-functions.php';
+
+// Load brochure management functions
+require_once __DIR__ . '/includes/brochure-functions.php';
+
+// Load schema helper functions
+require_once __DIR__ . '/includes/schema-functions.php';
+
+// Load PDF system
+require_once __DIR__ . '/includes/pdf/helpers.php';
+require_once __DIR__ . '/includes/pdf/render-proposal-html.php';
+require_once __DIR__ . '/includes/pdf/render-brochure-html.php';
+require_once __DIR__ . '/includes/pdf/print-proposal.php';
+require_once __DIR__ . '/includes/pdf/print-brochure.php';
+require_once __DIR__ . '/includes/pdf/print-loader.php';
 
 // Front-end actions.
 require_once __DIR__ . '/ui/front-actions.php';
@@ -26,13 +52,31 @@ require_once __DIR__ . '/ui/schema-form.php';
 register_activation_hook( __FILE__, 'sfpp_activate_plugin' );
 
 function sfpp_activate_plugin() {
-    // Create proposal tables
+    // Create all custom tables in logical order
+
+    // Core entity tables
     if ( function_exists( 'sfpp_create_proposal_tables' ) ) {
         sfpp_create_proposal_tables();
     }
-    // Create assets table
+
     if ( function_exists( 'sfpp_create_assets_table' ) ) {
         sfpp_create_assets_table();
+    }
+
+    if ( function_exists( 'sfpp_create_packages_table' ) ) {
+        sfpp_create_packages_table();
+    }
+
+    if ( function_exists( 'sfpp_create_extras_table' ) ) {
+        sfpp_create_extras_table();
+    }
+
+    if ( function_exists( 'sfpp_create_populates_table' ) ) {
+        sfpp_create_populates_table();
+    }
+
+    if ( function_exists( 'sfpp_create_brochures_tables' ) ) {
+        sfpp_create_brochures_tables();
     }
 }
 
@@ -85,6 +129,8 @@ function sfpp_render_app_nav( $active_section ) {
         'hosting'     => 'Hosting Packages',
         'maintenance' => 'Maintenance Packages',
         'extras'      => 'Website Extras',
+        'populates'   => 'Text Snippets',
+        'brochures'   => 'Brochures',
         'proposals'   => 'Proposals',
         'assets'      => 'Assets',
     ];
@@ -129,7 +175,18 @@ function sfpp_render_app_section( $section ) {
             break;
 
         case 'extras':
-            $view = $base_dir . '/extras-list.php';
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/extra-edit.php' : $base_dir . '/extras-list.php';
+            break;
+
+        case 'populates':
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/populate-edit.php' : $base_dir . '/populates-list.php';
+            break;
+
+        case 'brochures':
+            $view_type = isset( $_GET['sfpp_view'] ) ? sanitize_key( $_GET['sfpp_view'] ) : 'list';
+            $view      = ( 'edit' === $view_type ) ? $base_dir . '/brochure-edit.php' : $base_dir . '/brochures-list.php';
             break;
 
         case 'proposals':
@@ -177,8 +234,7 @@ add_action( 'wp_enqueue_scripts', function () {
  * Generic helpers.
  */
 /**
- * Simplified helper functions using new package management system.
- * These maintain backward compatibility while using the simplified architecture.
+ * Helper functions for package management.
  */
 
 function sfpp_get_packages_by_type( $type, $status = 'active' ) {
@@ -218,57 +274,7 @@ function sfpp_get_maintenance_package( $id ) {
 }
 
 /**
- * Schema helpers.
- */
-function sfpp_schema_get_value( $data, $key, $default = '' ) {
-    if ( ! is_array( $data ) ) {
-        return $default;
-    }
-
-    $parts   = explode( '.', $key );
-    $current = $data;
-
-    foreach ( $parts as $part ) {
-        if ( ! isset( $current[ $part ] ) ) {
-            return $default;
-        }
-        $current = $current[ $part ];
-    }
-
-    return $current;
-}
-
-function sfpp_schema_set_value( &$data, $key, $value ) {
-    if ( ! is_array( $data ) ) {
-        $data = [];
-    }
-
-    $parts = explode( '.', $key );
-    $last  = array_pop( $parts );
-
-    $current =& $data;
-
-    foreach ( $parts as $part ) {
-        if ( ! isset( $current[ $part ] ) || ! is_array( $current[ $part ] ) ) {
-            $current[ $part ] = [];
-        }
-        $current =& $current[ $part ];
-    }
-
-    $current[ $last ] = $value;
-}
-
-function sfpp_schema_input_name( $key ) {
-    $parts = explode( '.', $key );
-    $name  = 'schema';
-    foreach ( $parts as $part ) {
-        $name .= '[' . $part . ']';
-    }
-    return $name;
-}
-
-/**
- * Schema getters.
+ * Schema getters for packages.
  */
 function sfpp_get_website_package_schema() {
     $path = __DIR__ . '/schemas/website-packages-schema.php';

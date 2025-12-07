@@ -17,12 +17,12 @@ function sfpp_create_assets_table() {
 
     $charset_collate = $wpdb->get_charset_collate();
 
-    $assets_table = "CREATE TABLE IF NOT EXISTS sf_assets (
-        id int(11) NOT NULL AUTO_INCREMENT,
+    $sql = "CREATE TABLE IF NOT EXISTS sf_assets (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
         name varchar(255) NOT NULL DEFAULT '',
         slug varchar(100) NOT NULL DEFAULT '',
         asset_type varchar(50) NOT NULL DEFAULT '',
-        attachment_id int(11) DEFAULT NULL,
+        attachment_id bigint(20) DEFAULT NULL,
         content longtext,
         metadata_json longtext,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -33,7 +33,7 @@ function sfpp_create_assets_table() {
     ) $charset_collate;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-    dbDelta( $assets_table );
+    dbDelta( $sql );
 
     update_option( 'sfpp_assets_db_version', '1.0' );
 }
@@ -318,4 +318,124 @@ function sfpp_update_asset_from_request( $id, $post ) {
     }
 
     return sfpp_update_asset( $id, $update_data );
+}
+
+/**
+ * Get assets grouped by type.
+ * Returns an associative array: [ 'cover_page' => [...], 'body_background' => [...], ... ]
+ */
+function sfpp_get_assets_grouped_by_type() {
+    $all_assets = sfpp_get_assets();
+
+    $grouped = [
+        'cover_page' => [],
+        'body_background' => [],
+        'about_pdf' => [],
+        'terms_pdf' => [],
+        'appendix_pdf' => [],
+    ];
+
+    foreach ( $all_assets as $asset ) {
+        $type = $asset->asset_type ?? '';
+        if ( isset( $grouped[ $type ] ) ) {
+            $grouped[ $type ][] = $asset;
+        }
+    }
+
+    return $grouped;
+}
+
+/**
+ * Get asset options for a specific type (for use in select/radio fields).
+ * Returns array like: [ '' => 'None', '1' => 'Asset Name', '2' => 'Other Asset', ... ]
+ */
+function sfpp_get_assets_options_for_type( $type ) {
+    $assets = sfpp_get_assets( $type );
+
+    $options = [ '' => '— None —' ];
+
+    if ( empty( $assets ) ) {
+        $options[''] = '— No assets available —';
+        return $options;
+    }
+
+    foreach ( $assets as $asset ) {
+        $options[ (string) $asset->id ] = $asset->name ?? 'Unnamed Asset';
+    }
+
+    return $options;
+}
+
+/**
+ * Get file path for an asset by ID.
+ * This resolves the asset to its actual file path on disk.
+ *
+ * @param int $asset_id Asset ID
+ * @return string|false File path or false if not found
+ */
+function sfpp_get_asset_file_path( $asset_id ) {
+    $asset = sfpp_get_asset( $asset_id );
+
+    if ( ! $asset ) {
+        return false;
+    }
+
+    // If asset has an attachment_id, get WordPress upload path
+    if ( ! empty( $asset->attachment_id ) ) {
+        $file_path = get_attached_file( $asset->attachment_id );
+        if ( $file_path && file_exists( $file_path ) ) {
+            return $file_path;
+        }
+    }
+
+    // If asset has metadata with file_path
+    if ( ! empty( $asset->metadata_json ) ) {
+        $metadata = json_decode( $asset->metadata_json, true );
+        if ( ! empty( $metadata['file_path'] ) ) {
+            $file_path = $metadata['file_path'];
+
+            // Convert relative to absolute if needed
+            if ( ! file_exists( $file_path ) ) {
+                // Try relative to plugin directory
+                $plugin_path = dirname( dirname( __FILE__ ) ) . '/' . ltrim( $file_path, '/' );
+                if ( file_exists( $plugin_path ) ) {
+                    return $plugin_path;
+                }
+
+                // Try relative to uploads directory
+                $upload_dir = wp_upload_dir();
+                $upload_path = $upload_dir['basedir'] . '/' . ltrim( $file_path, '/' );
+                if ( file_exists( $upload_path ) ) {
+                    return $upload_path;
+                }
+            } else {
+                return $file_path;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Get multiple asset file paths from array of IDs.
+ *
+ * @param array $asset_ids Array of asset IDs
+ * @return array Array of file paths (indexed by asset ID)
+ */
+function sfpp_get_asset_file_paths( $asset_ids ) {
+    if ( empty( $asset_ids ) || ! is_array( $asset_ids ) ) {
+        return [];
+    }
+
+    $file_paths = [];
+
+    foreach ( $asset_ids as $asset_id ) {
+        $file_path = sfpp_get_asset_file_path( $asset_id );
+        if ( $file_path ) {
+            $file_paths[ $asset_id ] = $file_path;
+        }
+    }
+
+    return $file_paths;
 }

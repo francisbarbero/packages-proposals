@@ -17,28 +17,34 @@ function sfpp_create_proposal_tables() {
 
     $charset_collate = $wpdb->get_charset_collate();
 
+    // Drop legacy sf_proposal_assets table if it exists
+    $wpdb->query( "DROP TABLE IF EXISTS sf_proposal_assets" );
+
     // Proposals table
     $proposals_table = "CREATE TABLE IF NOT EXISTS sf_proposals (
-        id int(11) NOT NULL AUTO_INCREMENT,
+        id bigint(20) NOT NULL AUTO_INCREMENT,
         name varchar(255) NOT NULL DEFAULT '',
         client_name varchar(255) NOT NULL DEFAULT '',
         project_name varchar(255) NOT NULL DEFAULT '',
         status varchar(20) NOT NULL DEFAULT 'draft',
+        proposal_type varchar(20) NOT NULL DEFAULT 'proposal',
         total_amount decimal(10,2) NOT NULL DEFAULT 0.00,
         currency varchar(10) NOT NULL DEFAULT 'PHP',
+        schema_json longtext,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY status (status),
+        KEY proposal_type (proposal_type),
         KEY created_at (created_at)
     ) $charset_collate;";
 
     // Proposal items table
     $items_table = "CREATE TABLE IF NOT EXISTS sf_proposal_items (
-        id int(11) NOT NULL AUTO_INCREMENT,
-        proposal_id int(11) NOT NULL,
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        proposal_id bigint(20) NOT NULL,
         item_type varchar(20) NOT NULL DEFAULT 'custom',
-        item_id int(11) NULL,
+        item_id bigint(20) NULL,
         name varchar(255) NOT NULL DEFAULT '',
         description text,
         quantity int(11) NOT NULL DEFAULT 1,
@@ -52,22 +58,9 @@ function sfpp_create_proposal_tables() {
         KEY sort_order (sort_order)
     ) $charset_collate;";
 
-    // Proposal assets link table
-    $proposal_assets_table = "CREATE TABLE IF NOT EXISTS sf_proposal_assets (
-        id int(11) unsigned NOT NULL AUTO_INCREMENT,
-        proposal_id int(11) unsigned NOT NULL,
-        asset_id int(11) unsigned NOT NULL,
-        asset_type varchar(50) NOT NULL DEFAULT '',
-        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY proposal_id (proposal_id),
-        KEY asset_id (asset_id)
-    ) $charset_collate;";
-
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $proposals_table );
     dbDelta( $items_table );
-    dbDelta( $proposal_assets_table );
 
     update_option( 'sfpp_proposals_db_version', '1.0' );
 }
@@ -83,6 +76,7 @@ function sfpp_create_proposal( $data ) {
         'client_name' => '',
         'project_name' => '',
         'status' => 'draft',
+        'proposal_type' => 'proposal',
         'total_amount' => 0.00,
         'currency' => 'PHP',
     ];
@@ -166,6 +160,9 @@ function sfpp_get_proposal( $id ) {
     $proposal = $wpdb->get_row( $sql );
 
     if ( $proposal ) {
+        // Decode schema JSON
+        $proposal->schema_data = $proposal->schema_json ? json_decode( $proposal->schema_json, true ) ?? [] : [];
+
         do_action( 'sfpp_proposal_loaded', $proposal );
     }
 
@@ -244,8 +241,10 @@ function sfpp_clone_proposal( $id ) {
         'client_name' => $original->client_name ?? '',
         'project_name' => $original->project_name ?? '',
         'status' => 'draft',
+        'proposal_type' => $original->proposal_type ?? 'proposal',
         'total_amount' => 0.00, // Will be recalculated after cloning items
         'currency' => $original->currency ?? 'PHP',
+        'schema_json' => $original->schema_json ?? null,
     ];
 
     $clone_id = sfpp_create_proposal( $clone_data );
@@ -552,70 +551,82 @@ function sfpp_add_packages_to_proposal_items( $proposal_id, $package_ids ) {
 }
 
 /**
- * Get asset IDs linked to a proposal.
+ * Add selected extras as proposal items.
+ *
+ * For each extra_id:
+ * - Load extra from sf_extras.
+ * - Create a proposal item row with item_type='extra', item_id=extra id,
+ *   name=extra name, description=extra description, quantity=1,
+ *   unit_price=extra base_price, and append at the end.
+ * - Recalculate the proposal total.
  */
-function sfpp_get_proposal_asset_ids( $proposal_id ) {
+function sfpp_add_extras_to_proposal_items( $proposal_id, $extra_ids ) {
     global $wpdb;
 
     $proposal_id = (int) $proposal_id;
-    if ( $proposal_id <= 0 ) {
-        return [];
+    if ( $proposal_id <= 0 || empty( $extra_ids ) || ! is_array( $extra_ids ) ) {
+        return 0;
     }
 
-    $sql = $wpdb->prepare(
-        "SELECT asset_id FROM sf_proposal_assets WHERE proposal_id = %d ORDER BY asset_type ASC, asset_id ASC",
-        $proposal_id
-    );
-
-    $results = $wpdb->get_col( $sql );
-
-    return $results ? array_map( 'intval', $results ) : [];
-}
-
-/**
- * Sync asset links for a proposal (replaces all existing links).
- */
-function sfpp_sync_proposal_assets( $proposal_id, $asset_ids ) {
-    global $wpdb;
-
-    $proposal_id = (int) $proposal_id;
-    if ( $proposal_id <= 0 ) {
-        return false;
+    // Normalise extra IDs.
+    $extra_ids = array_filter( array_map( 'intval', $extra_ids ) );
+    if ( empty( $extra_ids ) ) {
+        return 0;
     }
 
-    // Delete existing links
-    $wpdb->delete(
-        'sf_proposal_assets',
-        [ 'proposal_id' => $proposal_id ]
+    // Determine starting sort_order (max existing + 10).
+    $max_sort = (int) $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT MAX(sort_order) FROM sf_proposal_items WHERE proposal_id = %d",
+            $proposal_id
+        )
     );
+    $sort_order = $max_sort + 10;
 
-    // Add new links
-    if ( ! empty( $asset_ids ) && is_array( $asset_ids ) ) {
-        foreach ( $asset_ids as $asset_id ) {
-            $asset_id = (int) $asset_id;
-            if ( $asset_id <= 0 ) {
-                continue;
-            }
+    $added_count = 0;
 
-            // Get asset to capture its type
-            $asset = function_exists( 'sfpp_get_asset' ) ? sfpp_get_asset( $asset_id ) : null;
-            $asset_type = $asset ? ( $asset->asset_type ?? '' ) : '';
+    foreach ( $extra_ids as $extra_id ) {
+        // Load the extra.
+        $extra = function_exists( 'sfpp_get_extra' ) ? sfpp_get_extra( $extra_id ) : null;
+        if ( ! $extra ) {
+            continue;
+        }
 
-            $wpdb->insert(
-                'sf_proposal_assets',
-                [
-                    'proposal_id' => $proposal_id,
-                    'asset_id' => $asset_id,
-                    'asset_type' => $asset_type,
-                    'created_at' => current_time( 'mysql' ),
-                ]
-            );
+        $name        = isset( $extra->name ) ? $extra->name : '';
+        $description = isset( $extra->description ) ? $extra->description : '';
+        $unit_price  = isset( $extra->base_price ) ? (float) $extra->base_price : 0;
+        $quantity    = 1;
+        $total       = $quantity * $unit_price;
+
+        $result = $wpdb->insert(
+            'sf_proposal_items',
+            [
+                'proposal_id' => $proposal_id,
+                'item_type'   => 'extra',
+                'item_id'     => $extra_id,
+                'name'        => $name,
+                'description' => $description,
+                'quantity'    => $quantity,
+                'unit_price'  => $unit_price,
+                'total_price' => $total,
+                'sort_order'  => $sort_order,
+                'created_at'  => current_time( 'mysql' ),
+            ]
+        );
+
+        if ( $result !== false ) {
+            $added_count++;
+            $sort_order += 10;
         }
     }
 
-    do_action( 'sfpp_proposal_assets_synced', $proposal_id, $asset_ids );
+    // Recalculate totals after adding items.
+    if ( $added_count > 0 ) {
+        sfpp_recalculate_proposal_totals( $proposal_id );
+        do_action( 'sfpp_proposal_items_extras_added', $proposal_id, $extra_ids, $added_count );
+    }
 
-    return true;
+    return $added_count;
 }
 
 /**
@@ -628,6 +639,7 @@ function sfpp_create_proposal_from_request( $post ) {
         'client_name' => sanitize_text_field( wp_unslash( $post['client_name'] ?? '' ) ),
         'project_name' => sanitize_text_field( wp_unslash( $post['project_name'] ?? '' ) ),
         'status' => sanitize_text_field( wp_unslash( $post['status'] ?? 'draft' ) ),
+        'proposal_type' => sanitize_text_field( wp_unslash( $post['proposal_type'] ?? 'proposal' ) ),
         'currency' => sanitize_text_field( wp_unslash( $post['currency'] ?? 'PHP' ) ),
     ];
 
@@ -673,8 +685,16 @@ function sfpp_update_proposal_from_request( $id, $post ) {
         'client_name' => sanitize_text_field( wp_unslash( $post['client_name'] ?? '' ) ),
         'project_name' => sanitize_text_field( wp_unslash( $post['project_name'] ?? '' ) ),
         'status' => sanitize_text_field( wp_unslash( $post['status'] ?? 'draft' ) ),
+        'proposal_type' => sanitize_text_field( wp_unslash( $post['proposal_type'] ?? 'proposal' ) ),
         'currency' => sanitize_text_field( wp_unslash( $post['currency'] ?? 'PHP' ) ),
     ];
+
+    // Handle schema data
+    if ( isset( $post['schema'] ) && is_array( $post['schema'] ) ) {
+        $schema = sfpp_get_proposal_schema();
+        $schema_data = sfpp_process_proposal_schema( $schema, wp_unslash( $post['schema'] ) );
+        $update_data['schema_json'] = wp_json_encode( $schema_data );
+    }
 
     $success = sfpp_update_proposal( $id, $update_data );
 
@@ -707,11 +727,42 @@ function sfpp_update_proposal_from_request( $id, $post ) {
         }
     }
 
-    // Sync asset links if provided
-    if ( isset( $post['asset_ids'] ) ) {
-        $asset_ids = is_array( $post['asset_ids'] ) ? array_map( 'intval', $post['asset_ids'] ) : [];
-        sfpp_sync_proposal_assets( $id, $asset_ids );
+    return true;
+}
+
+/**
+ * Process schema data from form submission for proposals.
+ */
+function sfpp_process_proposal_schema( $schema, $posted_data ) {
+    $clean_schema = [];
+
+    if ( ! empty( $schema['groups'] ) ) {
+        foreach ( $schema['groups'] as $group ) {
+            if ( empty( $group['fields'] ) ) {
+                continue;
+            }
+
+            foreach ( $group['fields'] as $field ) {
+                if ( empty( $field['key'] ) ) {
+                    continue;
+                }
+
+                $key = $field['key'];
+                $default = $field['default'] ?? '';
+                $type = $field['type'] ?? 'text';
+
+                // Get value from posted data
+                $value = sfpp_schema_get_value( $posted_data, $key, $default );
+
+                // For checkbox_multi fields, ensure it's an array
+                if ( 'checkbox_multi' === $type && ! is_array( $value ) ) {
+                    $value = ! empty( $value ) ? [ $value ] : [];
+                }
+
+                sfpp_schema_set_value( $clean_schema, $key, $value );
+            }
+        }
     }
 
-    return true;
+    return $clean_schema;
 }

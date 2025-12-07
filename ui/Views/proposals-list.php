@@ -56,16 +56,21 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                 <tr>
                     <th>Proposal Name</th>
                     <th>Client</th>
+                    <th>Type</th>
                     <th>Status</th>
                     <th>Total Amount</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ( $proposals as $proposal ) : ?>
+                <?php foreach ( $proposals as $proposal ) :
+                    $type_label = 'agreement' === ( $proposal->proposal_type ?? 'proposal' ) ? 'Agreement' : 'Proposal';
+                    $type_class = 'agreement' === ( $proposal->proposal_type ?? 'proposal' ) ? 'sfpp-badge--agreement' : 'sfpp-badge--proposal';
+                ?>
                     <tr>
                         <td><?php echo esc_html( $proposal->name ?? '' ); ?></td>
                         <td><?php echo esc_html( $proposal->client_name ?? '' ); ?></td>
+                        <td><span class="sfpp-badge <?php echo esc_attr( $type_class ); ?>"><?php echo esc_html( $type_label ); ?></span></td>
                         <td><?php echo esc_html( $proposal->status ?? 'draft' ); ?></td>
                         <td>
                             <?php
@@ -85,9 +90,20 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                                 ],
                                 $base_url
                             );
+                            $print_url = add_query_arg(
+                                [
+                                    'action'      => 'print_proposal',
+                                    'proposal_id' => $proposal->id,
+                                ],
+                                $base_url
+                            );
                             ?>
                             <a href="<?php echo esc_url( $edit_url ); ?>" class="sfpp-link">
                                 Edit
+                            </a>
+
+                            <a href="<?php echo esc_url( $print_url ); ?>" class="sfpp-link" target="_blank" rel="noopener">
+                                Print
                             </a>
 
                             <!-- Clone -->

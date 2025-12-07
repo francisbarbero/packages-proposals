@@ -49,11 +49,11 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
             <label for="sfpp_asset_type">Type</label>
             <select id="sfpp_asset_type" name="asset_type" required>
                 <option value="">Select Type</option>
-                <option value="letterhead_pdf">Letterhead (PDF)</option>
+                <option value="cover_page">Cover Page (PDF)</option>
+                <option value="body_background">Body Background (PDF)</option>
                 <option value="about_pdf">About PDF</option>
                 <option value="terms_pdf">Terms & Conditions (PDF)</option>
-                <option value="guide_html">Guide (HTML)</option>
-                <option value="signature_block">Signature Block (HTML)</option>
+                <option value="appendix_pdf">Appendix PDF</option>
             </select>
         </div>
 
@@ -96,15 +96,14 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                     <?php
                     // Define current asset types
                     $current_types = [
-                        'letterhead_pdf'   => 'Letterhead (PDF)',
+                        'cover_page'       => 'Cover Page (PDF)',
+                        'body_background'  => 'Body Background (PDF)',
                         'about_pdf'        => 'About PDF',
                         'terms_pdf'        => 'Terms & Conditions (PDF)',
-                        'guide_html'       => 'Guide (HTML)',
-                        'signature_block'  => 'Signature Block (HTML)',
+                        'appendix_pdf'     => 'Appendix PDF',
                     ];
 
                     $asset_type = $asset->asset_type ?? '';
-                    $is_legacy = ! empty( $asset_type ) && ! isset( $current_types[ $asset_type ] );
                     ?>
                     <tr>
                         <td>
@@ -128,12 +127,6 @@ $notice = isset( $_GET['sfpp_notice'] ) ? sanitize_key( $_GET['sfpp_notice'] ) :
                                         <?php echo esc_html( $type_label ); ?>
                                     </option>
                                 <?php endforeach; ?>
-
-                                <?php if ( $is_legacy ) : ?>
-                                    <option value="<?php echo esc_attr( $asset_type ); ?>" selected>
-                                        (Legacy) <?php echo esc_html( $asset_type ); ?>
-                                    </option>
-                                <?php endif; ?>
                             </select>
                         </td>
                         <td>

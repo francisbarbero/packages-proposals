@@ -178,3 +178,81 @@
 .sfpp-tab-panel__title {
     margin-top: 0;
 }
+
+/* Populates sidebar for text snippet insertion */
+.sfpp-field--with-sidebar {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.sfpp-field--with-sidebar .sfpp-field__main {
+    flex: 1;
+    min-width: 0;
+}
+
+.sfpp-populates-sidebar {
+    flex: 0 0 240px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.sfpp-populates-sidebar__header {
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+    background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.sfpp-populates-sidebar__header strong {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.sfpp-populates-sidebar__hint {
+    font-size: 11px;
+    color: #666;
+}
+
+.sfpp-populates-sidebar__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.sfpp-populate-insert {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.sfpp-populate-insert:hover {
+    background: #fff;
+}
+
+.sfpp-populate-insert:active,
+.sfpp-populate-insert.sfpp-populate-inserted {
+    background: #e0f5e0;
+}
+
+.sfpp-populate-title {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 2px;
+    color: #333;
+}
+
+.sfpp-populate-preview {
+    display: block;
+    font-size: 11px;
+    color: #666;
+    line-height: 1.4;
+}

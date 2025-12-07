@@ -1,0 +1,191 @@
+.checkmark {
+   list-style-type: none;
+
+}
+.checkmark li span{
+    color: #4F81BD;
+    font-weight: bold;
+
+}
+
+body {
+    font-family: sans-serif;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 20px auto;
+    max-width: 1200px;
+}
+
+h1, h2 {
+    color: #AB1D1C;
+}
+
+/* Main title should be left aligned and black */
+h1 {
+    color: #000000;
+    text-align: left;
+    margin-bottom: 40px;
+}
+
+h1.nomargin
+ {
+    color: #000000;
+    text-align: left;
+    margin-bottom: 0px !important;
+    padding-bottom: 0px !important;
+}
+
+
+h2 {
+    margin-top: 40px;
+    border-bottom: 1px solid #000;
+
+}
+
+h3 {
+     font-weight: bold;
+   font-size: 15px;
+    margin-top: 15px;
+    margin-bottom:0px;
+    padding-bottom: 0px;
+    color: #4F81BD;
+}
+
+h4 {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+ul, ol {
+    margin-left: 20px;
+    padding-left: 20px;;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+}
+
+th, td {
+    border: 1px solid #95B4D8;
+    padding: 4px;
+    text-align: left;
+}
+
+th {
+    background-color: #4F81BD; /* Dark blue */
+    color: #ffffff;
+}
+
+td:nth-child(1) {
+    font-weight: bold;
+    width: 200px;
+}
+
+
+td:nth-child(3) {
+   width: 100px;
+}
+
+tbody tr:nth-child(odd) {
+    background-color: #ffffff;
+}
+
+tbody tr:nth-child(even) {
+    background-color: #D8E2F3;
+}
+
+
+.section-title {
+    border-bottom: 1px solid #000;
+    margin-bottom: 15px;
+    padding-bottom: 5px;
+    font-weight: bold;
+
+
+}
+
+.field-label {
+   font-weight: bold;
+   font-size: 15px;
+   color: #4F81BD; /*nice blue titles */
+
+   margin-bottom: 0px;
+    padding-bottom: 0px;
+    margin-top: 15px;
+    padding-top: 5px;
+}
+
+.field-value {
+ /* background-color: red; */
+  margin: 0;
+  padding: 0;
+
+}
+
+.field-value p,  {
+  margin-top: 0px;
+  padding-top: 0px;
+}
+
+.field-value ul, .field-value ol {
+    padding-top: 0px;
+    padding-left: 0px;
+    margin-left: 52px;
+ }
+
+.field-value ul ul, .field-value ol ul{
+    padding-top: 0px;
+    padding-left: 30px;
+    margin-left: 17px;
+ }
+
+.cost-breakdown-table th:nth-child(1),
+.cost-breakdown-table td:nth-child(1) {
+    width: 25%;
+}
+
+
+.cost-breakdown-table th:nth-child(2),
+.cost-breakdown-table td:nth-child(2) {
+    width: 65%;
+}
+
+.cost-breakdown-table th:nth-child(3),
+.cost-breakdown-table td:nth-child(3) {
+    width: 10%;
+    text-align: right;
+}
+
+.totals-row td {
+    font-weight: bold;
+    text-align: right;
+}
+
+.grand-total-foreign {
+    font-weight: bold;
+    text-align: right;
+}
+
+
+
+
+/* ========================================================================================= */
+/*  for the terms and agreements since its best not to use U LI */
+
+.section {
+        margin-bottom: 25px;
+    }
+    .subsection {
+        margin-left: 20px;
+        margin-bottom: 15px;
+    }
+    .clause {
+        margin-bottom: 10px;
+    }
+
+.schedule{
+        color: #AB1D1C;
+    }

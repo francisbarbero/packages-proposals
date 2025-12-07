@@ -1,0 +1,8 @@
+{
+    "name": "starfish/packages-proposals",
+    "description": "Starfish Proposals & Packages Plugin",
+    "type": "wordpress-plugin",
+    "require": {
+        "mpdf/mpdf": "^8.2"
+    }
+}
